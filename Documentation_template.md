@@ -1,7 +1,7 @@
 # ML Challenge 2026: Business Entity Resolution Solution Template
 
-**Team Name:** [Your Team Name]  
-**Team Members:** [List all team members]  
+**Team Name:** Naren192006  
+**Team Members:** Narendra Reddy  
 **Submission Date:** September 2026
 
 ---
@@ -69,7 +69,7 @@ EDA findings that shaped the design:
 
 ## 5. Results & Error Analysis
 
-- **F0.5 Score (macro):** [filled after final validation run]
+- **F0.5 Score (macro):** 0.78374 (deterministic 25% S1-entity holdout; includes singleton credit)
 - **Common false positives (wrong merges):** generic names in the same city with no true link (caught by pushing τ up and by the one-to-one step); chain stores sharing a brand token.
 - **Common false negatives (missed matches):** pairs whose name was heavily truncated plus re-ordered (few shared tokens); heavy typos breaking both metaphone codes; addresses empty on one side; romanization variants our rules render differently than the source's own Latinization.
 
@@ -91,6 +91,7 @@ Complete runnable code ships in the zip under `code/business_entity_resolution/`
 
 - Candidate recall progression: 54.9% (initial 10-key design) → 70.1% (13 keys + corroboration fallback for oversized exact-name groups).
 - 80.6% of gold pairs share ≥1 blocking key ignoring caps; 80% of misses share ≥1 phone token — motivation for the rare-pair key families.
-- Validation threshold sweep table: [see artifacts/model.pkl metadata / training log].
+- Validation threshold sweep (macro-F0.5, plain / one-to-one): τ=0.50 → 0.7711/0.7756; τ=0.70 → 0.7789/0.7821; τ=0.85 → 0.7819/**0.7837 (best)**; τ=0.90 → 0.7816/0.7829. One-to-one argmax resolution wins at every threshold.
+- Final test inference: 29.77M candidate pairs scored; 1,531,134 matches written across 966,282 of 1,732,544 test S1 entities; challenge validator reports PASS.
 
 ---
