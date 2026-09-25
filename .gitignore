@@ -1,0 +1,20 @@
+# Datasets are large (2.4 GB) and publicly provided by the challenge —
+# download from the challenge portal into dataset/ to reproduce.
+dataset/
+
+# Preprocessing/blocking/feature artifacts are 26 GB and fully regenerable
+# from the pipeline (see README.md). The trained model is kept for inference.
+artifacts/*
+!artifacts/model.pkl
+
+# candidate_pairs.tsv is 406 MB (GitHub hard limit is 100 MB).
+# Regenerate with: python3 src/predict_test.py test
+output/candidate_pairs.tsv
+
+# Logs and scratch
+*.log
+*.err
+__MACOSX/
+.DS_Store
+__pycache__/
+*.zip
