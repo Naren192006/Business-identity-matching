@@ -60,11 +60,18 @@ python3 utils/validate_submission.py \
    phone / digit overlaps, legal-suffix-stripped core overlaps, rapidfuzz
    similarities (Indel, JaroWinkler) on raw + normalized + core + alt-variant
    name strings and raw addresses, pin/state/domain agreement, DF/rarity.
-6. **train_match.py** — LightGBM binary classifier (negatives subsampled
-   1.5:1), early stopping, threshold sweep for macro-F0.5 on the val split,
-   plus a one-to-one (argmax) resolution variant.
-7. **predict_test.py** — scores test pairs, applies the calibrated threshold,
-   writes `output/matching_results.tsv` and `output/candidate_pairs.tsv`.
+6. **train_match.py** — ensemble trainer: randomized LightGBM HPO (early
+   stopping on average precision, final selection by validation macro-F0.5),
+   a numpy-IRLS logistic regression second model on standardized features,
+   and probability-averaging / stacked-LR combinations. Fine tau sweep
+   (0.20–0.99, step 0.01) in both plain and one-to-one resolution modes;
+   the highest-val-F0.5 variant is saved to `artifacts/model.pkl`.
+   (The single tuned LGBM wins: val macro-F0.5 0.8367 vs 0.8355 stack,
+   0.8279 avg, 0.8001 LR — the 70% blocking-recall ceiling is the
+   binding constraint, so blending with a weaker model only hurts.)
+7. **predict_test.py** — variant-aware scoring (lgbm/lr/avg/stack) of test
+   pairs, calibrated threshold + optional one-to-one argmax, writes
+   `output/matching_results.tsv` and `output/candidate_pairs.tsv`.
 
 ## Notes
 

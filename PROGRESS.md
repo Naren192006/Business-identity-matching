@@ -155,7 +155,15 @@ Note: `cap`/`cap_exact` args of `emit_pairs_from_keys` are effectively dead — 
 S1 records are always Latin and have no alt view, so they never got a col-8/9 hash; only
 S2/S3 records (which have alts) landed there → keys 8/9 grouped S2/S3 with themselves only.
 **Fixed**: records without an alt now fall back to their main-view hash in those columns, so a
-Latin S1 record can meet an alt-romanized S2/S3 record. Recall upside to be measured.
+Latin S1 record can meet an alt-romanized S2/S3 record. Measured upside (train, current caps):
+pairs 56.980M → 56.989M (+0.016%), pair recall 70.074% → 70.080%, macro ceiling 70.141% →
+70.147%, full-recall entities 40.706% → 40.710% — **correct but immaterial** (alt-matches were
+already caught by main-view keys). Kept for correctness. Meaningful ceiling gains now require
+new key *families*, not cap tuning.
+
+Note: regenerated outputs use the same test candidate set as before (rebuilding test blocking
+for a +0.016% candidate delta is not worth 40 min); the substantive output change is the
+calibrated τ=0.87 and the rescored model choice.
 
 ### Experiment results (all on the official-metric scorer)
 HPO: 4 randomized LightGBM configs (early stopping on average precision, AP≈0.9975–0.9979,
