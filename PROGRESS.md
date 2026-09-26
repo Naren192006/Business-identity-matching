@@ -105,3 +105,96 @@ Everything finished and validated:
 ## Validation metric reference
 F0.5 = 1.25·P·R / (0.25·P + R), macro-averaged per S1 entity, singletons included.
 **Final validation score: 0.7837** (τ=0.85, one-to-one mode).
+
+---
+
+## Session 2 (2026-09-26): metric-faithful rescoring + ensemble/HPO experiments
+
+### Scorer bug discovered & fixed (IMPORTANT)
+The original validation scorer gave **0.0 to correctly-predicted singletons**; the official
+metric gives **1.0** (predict-empty on a true singleton = perfect). The old 0.7837 was
+therefore **understated**. With the official-faithful scorer (gold counts taken from the
+full ground-truth file, all val S1 entities scored, singletons = 1.0 when predicted empty):
+
+- **Honest baseline of the shipped model: val macro-F0.5 = 0.83670** (τ=0.87, one-to-one).
+- Cross-checked against the old scorer per-entity (brute force over 547K entities) —
+  old scorer reproduces 0.78374 at τ=0.85 exactly; the delta vs 0.8366 is the singleton term.
+
+### Feature diagnostics (diag3.py)
+- Zero-gain features (dropped for new models): `country_eq`, `dom_any`, `name_exact_norm`,
+  `a_addr_empty` (and near-zero: `addr_exact_norm` gain≈391, `name_shorter_in_longer` 15K).
+- **pin_eq mystery solved**: pin coverage is tiny (S1: 6.8%, India S2/S3: 1.2%, US: 12.1%)
+  and blocking keys force pin_eq=1 for 92.8% of candidate pairs → near-constant feature.
+- All rapidfuzz features are stored **100× too small** (`/100` on already-normalized scores)
+  — harmless for trees (scale-invariant) but standardized for linear models.
+
+### New experiment infrastructure
+- `src/exp_lib.py` — vectorized val scorer (full-GT gold, singletons=1.0), fine tau sweeps,
+  numpy IRLS logistic regression, AP metric, standardization helpers.
+- `src/run_exp.py` — staged experiment driver with checkpoints in `artifacts/exp/`:
+  1 baseline sweep ✓ (0.83670 @ τ=0.87 1-1) · 2 logistic-regression second model ·
+  3 LightGBM HPO (AP early stopping, select by val macro-F0.5) · 4 avg/stack combos.
+- `src/cand_tradeoff.py` — blocking KEY_CAPS presets (current/tight/loose) with cached key
+  hashes; reports pairs, mean candidates/S1, pair recall, macro recall, full-recall fraction.
+
+### Candidate-set-size vs recall tradeoff (task 5)
+| preset | unique pairs | mean cand/S1 | median | p90 | pair recall | macro ceiling | full-recall entities |
+|---|---|---|---|---|---|---|---|
+| tight (caps≈½) | 45.4M | 20.6 | 9 | 24 | 67.75% | 67.88% | 38.02% |
+| **current** | 57.0M | 25.8 | 13 | 39 | 70.07% | 70.14% | 40.71% |
+| loose (caps≈2×) | 75.7M | 34.3 | 18 | 64 | (killed before scoring) | — | — |
+
+Read: halving the caps cuts candidates 20% for ~2.3 pts of recall ceiling; doubling them buys
+~33% more candidates. The **current caps sit near the knee** — recommended to keep for the
+leaderboard run; use `tight` only if a smaller candidate file is explicitly preferred.
+
+Note: `cap`/`cap_exact` args of `emit_pairs_from_keys` are effectively dead — every one of the
+13 key families has an explicit `KEY_CAPS` entry, which is the real knob.
+
+### Blocking bug found: alt-romanization keys (cols 8/9) could never fire
+S1 records are always Latin and have no alt view, so they never got a col-8/9 hash; only
+S2/S3 records (which have alts) landed there → keys 8/9 grouped S2/S3 with themselves only.
+**Fixed**: records without an alt now fall back to their main-view hash in those columns, so a
+Latin S1 record can meet an alt-romanized S2/S3 record. Recall upside to be measured.
+
+### Experiment results (all on the official-metric scorer)
+HPO: 4 randomized LightGBM configs (early stopping on average precision, AP≈0.9975–0.9979,
+final selection by validation macro-F0.5). Winner: neg:pos 1.5, num_leaves 127, lr 0.1,
+min_data_in_leaf 300, L1 2.0, L2 1.0, ff 0.7, bf 0.7.
+
+| variant | tau | mode | val macro-F0.5 |
+|---|---|---|---|
+| **LGBM tuned (39 feats)** | **0.87** | **one-to-one** | **0.83669** ← shipped |
+| stack(LGBM, LR) coefs=[10.74, 2.07, −8.99] | 0.77 | one-to-one | 0.83548 |
+| avg(LGBM, LR) | 0.65 | one-to-one | 0.82788 |
+| LogReg (numpy IRLS, standardized 39 feats) | 0.81 | one-to-one | 0.80010 |
+| previous shipped model (43 feats, rescored) | 0.87 | one-to-one | 0.83670 |
+| all 4 HPO configs | — | — | 0.8349–0.8367 |
+
+**Conclusions**
+1. The old 0.7837 was an artifact of the singleton bug; the honest shipped-model score is
+   0.8367. Fine tau sweep (0.20–0.99 × plain/1-1): interior peak at τ=0.87 1-1 (0.90 was a
+   boundary artifact of the old scorer; plain peaks later ~0.90 at 0.8348).
+2. The classifier is NOT the bottleneck: every LGBM config lands within 0.002, AP > 0.9975.
+   The 70.1% blocking recall ceiling caps macro-F0.5 ≈ 0.84 with this candidate set.
+3. The ensemble loses to the single tree: stack coefficients put ~5× weight on LGBM
+   (10.74 vs 2.07) and blending drags the calibrated LGBM toward the weaker LR
+   (avg 0.8279 < 0.8367). Kept in the pipeline and re-evaluated automatically; selection
+   stays metric-driven (single LGBM wins).
+4. Feature cleanup: country_eq / dom_any / name_exact_norm / a_addr_empty have exactly 0
+   gain in the shipped model (no splits) — provably redundant. New models train on 39 feats.
+   pin_eq is near-constant by construction: pin coverage S1 6.8% / India S2S3 1.2% / US
+   12.1%, and 92.8% of candidate pairs already have pin_eq=1 (blocking keys pin-partition).
+5. rapidfuzz features were stored 100× too small (/100 on already-normalized scores) —
+   harmless for trees, standardized for linear models; noted as a cosmetic bug.
+
+### Code state after this session
+- `src/train_match.py` — ensemble trainer: HPO (AP early stopping, F0.5 selection) → LR →
+  avg/stack combos → fine tau sweeps (0.20–0.99, both modes) → picks winner by val F0.5 →
+  saves model.pkl (variant-aware). Env knobs: N_HPO (default 8), LGBM_ONLY.
+- `src/predict_test.py` — variant-aware inference (lgbm/lr/avg/stack), same output format.
+- `src/exp_lib.py` — official-metric vectorized scorer, fine sweeps, IRLS LR, AP.
+- `src/combos_from_cache.py` — rebuild combos from cached probs without retraining.
+- `src/cand_tradeoff.py` — blocking recall-vs-size presets (see table above).
+- `src/blocking.py` — alt-key fallback fix + allow_fallback toggle for oversized groups.
+

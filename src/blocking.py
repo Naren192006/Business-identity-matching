@@ -150,11 +150,18 @@ def build_key_hashes(rd, verbose=True, pin=None, state_arr=None):
         dv = int(dom[i])
         if dv:
             h[5] = _hash_obj((c, dv))
-        # alt view gets its own key columns (K1alt -> col 8, K5alt -> col 9)
+        # alt view gets its own key columns (K1alt -> col 8, K5alt -> col 9).
+        # Records WITHOUT an alt romanization (e.g. S1 is always Latin) fall
+        # back to their main-view hash so that a Latin S1 record can meet an
+        # alt-romanized S2/S3 record whose alt transcription matches S1's name.
         if acore:
             h[8] = _hash_obj((c, tuple(sorted(acore))))
+        else:
+            h[8] = h[0]
         if aph:
             h[9] = _hash_obj((c, tuple(sorted(set(aph)))))
+        else:
+            h[9] = h[4]
         # rare-token-pair keys (col 10: 2 rarest phones, col 11: rarest phone
         # + first addr digit, col 12: 2 rarest core tokens)
         if ph:
@@ -194,12 +201,13 @@ KEY_CAPS = {
 }
 
 
-def _emit_group(g1, g2, pin, state_arr, k, out1, out2, stats):
+def _emit_group(g1, g2, pin, state_arr, k, out1, out2, stats,
+                allow_fallback=True):
     """Emit one group's cross-source pairs.
 
     Exact-name groups (keys 0/8) larger than their cap keep only pairs
-    corroborated by pin or state agreement.  Other oversized groups are
-    capped by product size and skipped beyond it.
+    corroborated by pin or state agreement (unless allow_fallback=False).
+    Other oversized groups are capped by product size and skipped beyond it.
     """
     kcap = KEY_CAPS.get(k, 60)
     prod = len(g1) * len(g2)
@@ -208,7 +216,8 @@ def _emit_group(g1, g2, pin, state_arr, k, out1, out2, stats):
         out2.append(np.tile(g2, len(g1)))
         stats["emit"] += prod
         return
-    if k in (0, 8) and pin is not None and prod <= 40000000:
+    if allow_fallback and k in (0, 8) and pin is not None \
+            and prod <= 40000000:
         g1_pin = pin[g1]
         g2_pin = pin[g2]
         g1_st = state_arr[g1]
@@ -227,7 +236,7 @@ def _emit_group(g1, g2, pin, state_arr, k, out1, out2, stats):
 
 
 def emit_pairs_from_keys(keys, src, cap=60, cap_exact=400, verbose=True,
-                         pin=None, state_arr=None):
+                         pin=None, state_arr=None, allow_fallback=True):
     """Group identical key hashes; emit cross-source pairs with dedup.
 
     Oversized groups: exact-name groups (keys 0/8) fall back to emitting only
@@ -264,7 +273,8 @@ def emit_pairs_from_keys(keys, src, cap=60, cap_exact=400, verbose=True,
             g2 = g[~is1[g]]
             if len(g1) == 0 or len(g2) == 0:
                 continue
-            _emit_group(g1, g2, pin, state_arr, k, p1, p2, stats)
+            _emit_group(g1, g2, pin, state_arr, k, p1, p2, stats,
+                        allow_fallback=allow_fallback)
         if p1:
             k1 = np.concatenate(p1)
             k2 = np.concatenate(p2)
