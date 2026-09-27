@@ -206,3 +206,53 @@ min_data_in_leaf 300, L1 2.0, L2 1.0, ff 0.7, bf 0.7.
 - `src/cand_tradeoff.py` — blocking recall-vs-size presets (see table above).
 - `src/blocking.py` — alt-key fallback fix + allow_fallback toggle for oversized groups.
 
+
+### Session 3: embedding-based blocking stage (in progress)
+
+Motivation: blocking recall (70.14%) caps macro-F0.5 at ~0.84 with the current
+candidate set; the classifier is not the bottleneck (HPO configs land within
+0.002). Every +1pt blocking recall ≈ +1.2–1.4 F0.5 pts, so the highest-leverage
+upgrade is a second candidate source that recovers pairs key blocking misses
+(typos, transliteration drift, reordering, missing components).
+
+Competition-legal by construction: the bi-encoder (char/word n-gram hashing →
+linear projection → L2 norm, dim 128, ~67 MB of weights) is trained from
+scratch on the PROVIDED ground-truth pairs only (sampled-softmax InfoNCE +
+IVF-mined hard negatives). No pretrained weights, no external data; ≤8B params
+trivially satisfied; pure numpy (no torch/faiss/sklearn — not installed and
+sklearn is policy-blocked).
+
+New modules (all numpy-only):
+- `src/emb_model.py` — record featurization (hashed char 3/4-grams + word
+  1/2-grams, idf-weighted, 131072 buckets), `BiEncoder` (W: buckets×dim),
+  fp16 embedding memmap cache, text-blob builder, record subsetting helper.
+- `src/emb_candidates.py` — two-level IVF ANN (k-means L1=1024 clusters, L2
+  sub-centroids, exact cosine refine), `query_ivf` top-k per S1, exact-search
+  recall@k eval, CLI: `--build` / `--run [--merge]` (union with key pairs).
+- `src/train_emb.py` — InfoNCE trainer (Adam on W, chunked fwd/bwd),
+  hard-negative curriculum (rebuild IVF + re-mine every --neg-rounds epochs),
+  val macro-recall eval, `--prep-only` phase (blob+idf+embeddings+IVF),
+  `--limit N` self-contained subset mode (anchors + gold partners + filler).
+- `src/pairs_data_emb.py` — labeled pairdata for any candidate npz (labels,
+  is_val, blocking diagnostics identical to cand_tradeoff.py).
+- `src/run_emb_stage.py` — end-to-end driver (train → candidates → union →
+  pairdata → report; `--test` for the test tag; `--smoke` for a 20K subset).
+- Integration: `PAIRS_SUFFIX=_all` env knob in train_match.py / predict_test.py /
+  build_features.py routes the union candidate set through the existing
+  feature→LGBM→threshold pipeline unchanged; exp caches are suffix-separated.
+
+Verified so far (synthetic + 20K-record real-data smoke):
+- training loss drops to ~0 on separable toys; retrieval top-1 gold 11/20 →
+  17/20 with hard-negative curriculum (the remaining misses are capacity
+  artifacts of a 32-dim toy with near-uniform idf).
+- real-data smoke (20K records, 1K anchors): full chain runs end-to-end —
+  subset build, idf, embedding cache, 2-epoch training, IVF build (2267
+  leaves), hard-negative mining (4/anchor cap enforced).
+- perf: 12.5M-record text blob ~53s; idf pass ~4.5 min; embedding pass ~11 min
+  (fp16 memmap, 3.2 GB); train step ~1.1 s per 1000-anchor batch (after
+  fixing a chunked-gather bottleneck that made steps 10× slower).
+
+Next: full-scale `--prep-only` (running), untrained-encoder recall probe, then
+InfoNCE training with hard-negative rounds, `--run --merge` to measure the
+union ceiling vs 70.14%, then retrain LGBM on the union candidates with
+PAIRS_SUFFIX=_all and re-sweep τ.

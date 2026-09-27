@@ -16,13 +16,13 @@ from blocking import load_data
 ART = "artifacts"
 
 
-def main(tag):
+def main(tag, suffix=""):
     t0 = time.time()
-    pairs = np.load(f"{ART}/{tag}_pairs.npz")
+    pairs = np.load(f"{ART}/{tag}_pairs{suffix}.npz")
     s1 = pairs["s1"].astype(np.int64)
     s2 = pairs["s2"].astype(np.int64)
     n = len(s1)
-    out = f"{ART}/{tag}_feats.npy"
+    out = f"{ART}/{tag}_feats{suffix}.npy"
     print(f"{tag}: {n} pairs -> {out}", flush=True)
 
     fb = FeatureBuilder(tag)
@@ -31,4 +31,5 @@ def main(tag):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "train")
+    main(sys.argv[1] if len(sys.argv) > 1 else "train",
+         sys.argv[2] if len(sys.argv) > 2 else "")

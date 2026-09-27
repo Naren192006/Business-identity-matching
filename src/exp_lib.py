@@ -22,6 +22,13 @@ def load_train_pairs():
             z["label"], z["is_val"])
 
 
+def load_train_pairs_suff(suffix=""):
+    """Pair loader variant for alt candidate sets (e.g. _all = keys+emb)."""
+    z = np.load(f"{ART}/train_pairdata{suffix}.npz")
+    return (z["s1_idx"].astype(np.int64), z["s2_idx"].astype(np.int64),
+            z["label"], z["is_val"])
+
+
 def gold_counts_full(split):
     """Per-val-entity gold match counts from the FULL ground-truth file.
 

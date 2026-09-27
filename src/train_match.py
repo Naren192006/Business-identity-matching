@@ -30,11 +30,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from exp_lib import (ValScorer, add_intercept, ap_feval, average_precision,
                      best_from_sweep, f05_vec, fine_taus, fit_lr,
                      gold_counts_full, load_split, load_train_pairs,
-                     lr_predict)
+                     load_train_pairs_suff, lr_predict)
 from features import FEATURE_NAMES
 
 ART = "artifacts"
-EXP = f"{ART}/exp"
+# experiment cache is per candidate-set (key-only vs keys+emb union) so a
+# run with PAIRS_SUFFIX=_all never reuses probs cached from the key-only run
+_EXP_SUFFIX = os.environ.get("PAIRS_SUFFIX", "")
+EXP = f"{ART}/exp{_EXP_SUFFIX}"
 os.makedirs(EXP, exist_ok=True)
 
 DROP = {"country_eq", "dom_any", "name_exact_norm", "a_addr_empty"}
@@ -131,7 +134,10 @@ def train_one_lgbm(cfg, F, label, is_val, Xva_es, yva_es):
 
 def main():
     t0 = time.time()
-    s1, s2, label, is_val = load_train_pairs()
+    # PAIRS_SUFFIX: candidate-set selector ("" = key blocking, "_all" =
+    # keys + embedding-ANN union built by run_emb_stage.py)
+    pairs_suffix = os.environ.get("PAIRS_SUFFIX", "")
+    s1, s2, label, is_val = load_train_pairs_suff(pairs_suffix)
     split = load_split()
     gold_full = gold_counts_full(split)
     scorer = ValScorer(s1[is_val], s2[is_val], label[is_val], split,
@@ -139,7 +145,7 @@ def main():
     va_idx = np.nonzero(is_val)[0]
     print(f"pairs={len(s1)}, val pairs={len(va_idx)}, feats kept="
           f"{int(KEEP.sum())}/43 (dropped: {DROP4_PRINT})", flush=True)
-    F = np.load(f"{ART}/train_feats.npy", mmap_mode="r")
+    F = np.load(f"{ART}/train_feats{pairs_suffix}.npy", mmap_mode="r")
 
     rng = np.random.default_rng(99)
     vs = rng.choice(len(va_idx), size=min(500_000, len(va_idx)),

@@ -26,6 +26,9 @@ def _sigmoid(x):
 
 def main(tag="test"):
     t0 = time.time()
+    # PAIRS_SUFFIX must match the one used at training time ("" = keys,
+    # "_all" = keys + embedding-ANN union)
+    pairs_suffix = os.environ.get("PAIRS_SUFFIX", "")
     with open(f"{ART}/model.pkl", "rb") as f:
         M = pickle.load(f)
     booster = M["booster"]
@@ -37,10 +40,10 @@ def main(tag="test"):
     print(f"model: variant={variant} tau={tau} mode={mode} "
           f"(val F0.5={M.get('val_f05'):.5f})", flush=True)
 
-    pd_ = np.load(f"{ART}/{tag}_pairdata.npz")
+    pd_ = np.load(f"{ART}/{tag}_pairdata{pairs_suffix}.npz")
     s1 = pd_["s1_idx"].astype(np.int64)
     s2 = pd_["s2_idx"].astype(np.int64)
-    F = np.load(f"{ART}/{tag}_feats.npy", mmap_mode="r")
+    F = np.load(f"{ART}/{tag}_feats{pairs_suffix}.npy", mmap_mode="r")
     print(f"{tag}: {len(s1)} pairs, feats {F.shape}", flush=True)
 
     # ---------------- LightGBM probs (chunked) ---------------------------

@@ -62,16 +62,17 @@ EDA findings that shaped the design:
 - Domain equality; domain present; country equality
 - Token document frequencies (first-token DF both sides, rarest-core-token DF); name token-count difference; shorter-in-longer; subsequence; name-number equality; address emptiness flags
 
-**Model type:** LightGBM binary classifier (MIT license; ~1.3k rounds × 127 leaves — well under the 8B-parameter cap), trained on all positives + 1.5:1 negative subsample, early stopping on validation AUC.  
-**Threshold selection method:** sweep τ ∈ {0.30 … 0.90}, maximizing macro-F0.5 over all val S1 entities (singletons included); the same sweep is repeated with a one-to-one argmax resolution (each S2/S3 assigned to its highest-scoring S1) and the better configuration is used for test inference.
+**Model type:** LightGBM binary classifier (MIT license; ~900 rounds × 127 leaves — well under the 8B-parameter cap), trained on all positives + 1.5:1 negative subsample, early stopping on validation average precision.  
+**Threshold selection method:** fine sweep τ ∈ [0.20, 0.99] step 0.01, maximizing macro-F0.5 over all val S1 entities (singletons included); the same sweep is repeated with a one-to-one argmax resolution (each S2/S3 assigned to its highest-scoring S1) and the better configuration is used for test inference. Winner: **τ = 0.87, one-to-one** (val 0.83669).
 
 ---
 
 ## 5. Results & Error Analysis
 
-- **F0.5 Score (macro):** 0.78374 (deterministic 25% S1-entity holdout; includes singleton credit)
+- **F0.5 Score (macro):** **0.8367** (deterministic 25% S1-entity holdout, official metric: gold counts from the full ground-truth file so blocking misses count as false negatives, all val S1 entities scored, singleton-with-empty-prediction = 1.0)
 - **Common false positives (wrong merges):** generic names in the same city with no true link (caught by pushing τ up and by the one-to-one step); chain stores sharing a brand token.
 - **Common false negatives (missed matches):** pairs whose name was heavily truncated plus re-ordered (few shared tokens); heavy typos breaking both metaphone codes; addresses empty on one side; romanization variants our rules render differently than the source's own Latinization.
+- **Bottleneck analysis (measured):** hyperparameter search over 8 LightGBM configs early-stopped on average precision and selected by val macro-F0.5 lands within 0.002 (0.8349–0.8367, AP > 0.9975) — the classifier is not the bottleneck. The 70.1% blocking pair recall (macro ceiling 70.14%) caps achievable macro-F0.5 at ≈ 0.84 with the current candidate set; a perfect classifier would reach ≈ 0.92. Ensembling with a numpy-IRLS logistic regression was evaluated (avg 0.8279, stack 0.8355) and the single tuned LightGBM won; selection is metric-driven.
 
 ---
 
@@ -91,7 +92,7 @@ Complete runnable code ships in the zip under `code/business_entity_resolution/`
 
 - Candidate recall progression: 54.9% (initial 10-key design) → 70.1% (13 keys + corroboration fallback for oversized exact-name groups).
 - 80.6% of gold pairs share ≥1 blocking key ignoring caps; 80% of misses share ≥1 phone token — motivation for the rare-pair key families.
-- Validation threshold sweep (macro-F0.5, plain / one-to-one): τ=0.50 → 0.7711/0.7756; τ=0.70 → 0.7789/0.7821; τ=0.85 → 0.7819/**0.7837 (best)**; τ=0.90 → 0.7816/0.7829. One-to-one argmax resolution wins at every threshold.
-- Final test inference: 29.77M candidate pairs scored; 1,531,134 matches written across 966,282 of 1,732,544 test S1 entities; challenge validator reports PASS.
+- Validation threshold sweep (macro-F0.5, plain / one-to-one, τ 0.20–0.99 step 0.01): interior peak at **τ=0.87 one-to-one → 0.83669**; plain mode peaks later (~0.90) at 0.8348; one-to-one wins at every threshold.
+- Final test inference: 29.77M candidate pairs scored; 1,525,010 matches written across 1,732,544 test S1 entities; challenge validator reports PASS (including `--check-ids`).
 
 ---
